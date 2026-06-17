@@ -232,7 +232,8 @@ document.getElementById('btn').addEventListener('click', async () => {
   }catch(e){ alert('無法啟動相機：' + e.message); }
 });
 
-addEventListener('click', e => {
+// 用 pointerup 統一滑鼠與觸控，iOS Safari 也能可靠觸發（且只觸發一次）
+addEventListener('pointerup', e => {
   if(e.target.id === 'btn') return;
   target = target > 0.5 ? 0.0 : 1.0;
 });
