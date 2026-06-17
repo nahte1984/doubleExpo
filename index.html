@@ -12,14 +12,17 @@
     background:#000;z-index:10;transition:opacity .5s;}
   #start button{background:#fff;color:#000;border:none;border-radius:40px;padding:16px 34px;
     font-size:17px;font-weight:600;letter-spacing:.05em;cursor:pointer;}
-  #hint{position:absolute;bottom:18px;left:0;width:100%;text-align:center;color:#888;
-    font-size:12px;z-index:9;pointer-events:none;opacity:.7;}
+  #toggle{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:9;
+    background:rgba(0,0,0,.45);color:#eee;border:1px solid rgba(255,255,255,.35);
+    border-radius:40px;padding:10px 22px;font-size:14px;letter-spacing:.05em;
+    cursor:pointer;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);}
+  #toggle:active{transform:translateX(-50%) scale(.96);}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="start"><button id="btn">filmCam</button></div>
-<div id="hint">點畫面切換 原始／milky</div>
+<button id="toggle">milky</button>
 
 <script id="vert" type="x-shader/x-vertex">
 attribute vec2 a_pos;
@@ -232,10 +235,11 @@ document.getElementById('btn').addEventListener('click', async () => {
   }catch(e){ alert('無法啟動相機：' + e.message); }
 });
 
-// 用 pointerup 統一滑鼠與觸控，iOS Safari 也能可靠觸發（且只觸發一次）
-addEventListener('pointerup', e => {
-  if(e.target.id === 'btn') return;
+// 用實體按鈕切換：iOS Safari 對 <button> 的點擊最可靠
+const toggleBtn = document.getElementById('toggle');
+toggleBtn.addEventListener('click', () => {
   target = target > 0.5 ? 0.0 : 1.0;
+  toggleBtn.textContent = target > 0.5 ? 'milky' : '原始';
 });
 </script>
 </body>
