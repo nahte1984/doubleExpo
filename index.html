@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>filmCam — rear camera + milky LUT</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;position:fixed;width:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent;}
+  #c{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  #start{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;
+    background:#000;z-index:10;transition:opacity .5s;}
+  #start button{background:#fff;color:#000;border:none;border-radius:40px;padding:16px 34px;
+    font-size:17px;font-weight:600;letter-spacing:.05em;cursor:pointer;}
+  #hint{position:absolute;bottom:18px;left:0;width:100%;text-align:center;color:#888;
+    font-size:12px;z-index:9;pointer-events:none;opacity:.7;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="start"><button id="btn">filmCam</button></div>
+<div id="hint">點畫面切換 原始／milky</div>
+
+<script id="vert" type="x-shader/x-vertex">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+</script>
+
+<script id="frag" type="x-shader/x-fragment">
+precision highp float;
+uniform sampler2D u_tex;     // 鏡頭影像
+uniform sampler2D u_lut;     // 攤平成 2D 的 32x32x32 LUT (1024 x 32)
+uniform float u_lutSize;     // 32
+uniform vec2  u_res;
+uniform vec2  u_texRes;
+uniform float u_time;
+uniform float u_amount;      // 0 = 原始, 1 = 全套 LUT
+
+varying vec2 v_uv;
+
+// ===== 額外的底片質感，不要可設 0 =====
+const float GRAIN    = 0.04;   // 顆粒
+const float VIGNETTE = 0.30;   // 暗角
+// =====================================
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+
+// 影像 cover 填滿畫布（裁切溢出，不變形）
+vec2 coverUV(vec2 uv){
+  float ra = u_res.x / u_res.y;
+  float rt = u_texRes.x / u_texRes.y;
+  vec2 s = vec2(1.0);
+  if(ra > rt) s.y = rt / ra; else s.x = ra / rt;
+  return (uv - 0.5) * s + 0.5;
+}
+
+// 3D LUT 取樣（WebGL1 沒有 3D 貼圖，所以把 32 片切片橫向攤平，手動做三線性內插）
+vec3 applyLUT(vec3 col){
+  float N = u_lutSize;
+  col = clamp(col, 0.0, 1.0);
+  float b  = col.b * (N - 1.0);
+  float b0 = floor(b);
+  float b1 = min(b0 + 1.0, N - 1.0);
+  float fb = b - b0;
+
+  float gx = col.r * (N - 1.0) + 0.5;   // 切片內 x（紅）
+  float gy = col.g * (N - 1.0) + 0.5;   // y（綠）
+  float texW = N * N;
+
+  vec2 uv0 = vec2((b0 * N + gx) / texW, gy / N);
+  vec2 uv1 = vec2((b1 * N + gx) / texW, gy / N);
+  vec3 c0 = texture2D(u_lut, uv0).rgb;
+  vec3 c1 = texture2D(u_lut, uv1).rgb;
+  return mix(c0, c1, fb);   // 藍通道在兩片切片間內插
+}
+
+void main(){
+  vec2 uv = coverUV(v_uv);
+  uv.y = 1.0 - uv.y;                     // 修正上下顛倒
+  vec3 src = texture2D(u_tex, uv).rgb;
+
+  vec3 c = applyLUT(src);                // 套用 milky 色彩查找表
+
+  // 顆粒
+  c += (hash(v_uv * u_res + u_time * 60.0) - 0.5) * GRAIN;
+  // 暗角
+  float d = distance(v_uv, vec2(0.5));
+  c *= mix(1.0, smoothstep(0.85, 0.35, d), VIGNETTE);
+
+  c = clamp(c, 0.0, 1.0);
+  gl_FragColor = vec4(mix(src, c, u_amount), 1.0);
+}
+</script>
+
+<script>
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { antialias:true });
+const video = document.createElement('video');
+video.playsInline = true; video.muted = true; video.setAttribute('playsinline','');
+
+let amount = 1.0, target = 1.0, lutReady = false;
+const LUT_FILE = 'milky.CUBE';   // 與本檔放在同一資料夾
+
+function compile(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER,   document.getElementById('vert').textContent));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('frag').textContent));
+gl.linkProgram(prog); gl.useProgram(prog);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// --- 鏡頭貼圖 (texture unit 0) ---
+const tex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+// --- LUT 貼圖 (texture unit 1) ---
+const lutTex = gl.createTexture();
+
+const U = {
+  tex:     gl.getUniformLocation(prog,'u_tex'),
+  lut:     gl.getUniformLocation(prog,'u_lut'),
+  lutSize: gl.getUniformLocation(prog,'u_lutSize'),
+  res:     gl.getUniformLocation(prog,'u_res'),
+  texRes:  gl.getUniformLocation(prog,'u_texRes'),
+  time:    gl.getUniformLocation(prog,'u_time'),
+  amount:  gl.getUniformLocation(prog,'u_amount'),
+};
+
+// 解析 .cube 並把 32x32x32 攤平成 1024x32 的 2D 貼圖
+async function loadLUT(){
+  let text;
+  try { text = await (await fetch(LUT_FILE, { cache:'no-store' })).text(); }
+  catch(e){ console.warn('LUT 載入失敗（需用 http/https 開啟，不能用 file://）:', e); return; }
+
+  let N = 32;
+  const vals = [];
+  for(const line of text.split(/\r?\n/)){
+    const t = line.trim();
+    if(!t || t.startsWith('#') || t.startsWith('TITLE')) continue;
+    if(t.startsWith('LUT_3D_SIZE')){ N = parseInt(t.split(/\s+/)[1], 10); continue; }
+    if(t.startsWith('DOMAIN')) continue;
+    const p = t.split(/\s+/).map(Number);
+    if(p.length === 3 && p.every(v => !isNaN(v))) vals.push(p[0], p[1], p[2]);
+  }
+
+  // 攤平：切片 b 佔欄 [b*N, b*N+N)，片內 x=紅 y=綠
+  const W = N * N, H = N;
+  const out = new Uint8Array(W * H * 4);
+  for(let b = 0; b < N; b++){
+    for(let g = 0; g < N; g++){
+      for(let r = 0; r < N; r++){
+        const si = (r + g * N + b * N * N) * 3;   // .cube 紅色變動最快
+        const px = b * N + r, py = g;
+        const di = (py * W + px) * 4;
+        out[di]   = Math.round(vals[si]   * 255);
+        out[di+1] = Math.round(vals[si+1] * 255);
+        out[di+2] = Math.round(vals[si+2] * 255);
+        out[di+3] = 255;
+      }
+    }
+  }
+
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, lutTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, out);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  gl.useProgram(prog);
+  gl.uniform1f(U.lutSize, N);
+  lutReady = true;
+}
+loadLUT();
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = innerWidth  * dpr;
+  canvas.height = innerHeight * dpr;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+addEventListener('resize', resize); resize();
+
+function render(t){
+  requestAnimationFrame(render);
+  if(video.readyState < 2 || !video.videoWidth) return;
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+
+  amount += (target - amount) * 0.15;
+  gl.uniform1i(U.tex, 0);
+  gl.uniform1i(U.lut, 1);
+  gl.uniform2f(U.res, canvas.width, canvas.height);
+  gl.uniform2f(U.texRes, video.videoWidth, video.videoHeight);
+  gl.uniform1f(U.time, t * 0.001);
+  gl.uniform1f(U.amount, lutReady ? amount : 0.0);   // LUT 還沒好就先顯示原始
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+document.getElementById('btn').addEventListener('click', async () => {
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width:{ideal:1920}, height:{ideal:1080} },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    const s = document.getElementById('start');
+    s.style.opacity = '0'; setTimeout(()=> s.style.display='none', 500);
+    requestAnimationFrame(render);
+  }catch(e){ alert('無法啟動相機：' + e.message); }
+});
+
+addEventListener('click', e => {
+  if(e.target.id === 'btn') return;
+  target = target > 0.5 ? 0.0 : 1.0;
+});
+</script>
+</body>
+</html>
