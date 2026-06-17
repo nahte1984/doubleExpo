@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>doubleExpo | v1.3</title>
+<title>double exposure</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Belgrano&display=swap" rel="stylesheet">
@@ -19,12 +19,13 @@
   button.txt:disabled{cursor:default;opacity:1;}
 
   /* ---------- 第一階段：splash ---------- */
-  #splash{position:fixed;inset:0;background:#313131;z-index:30;
+  #splash{position:fixed;inset:0;background:#313131;z-index:30;overflow:hidden;padding:5vw;
     display:flex;align-items:center;justify-content:center;transition:opacity .8s ease;}
-  .splash-inner{display:flex;flex-direction:column;align-items:flex-start;}
+  .splash-inner{display:flex;flex-direction:column;align-items:flex-start;max-width:100%;}
 
-  .title{position:relative;display:inline-block;font-size:64px;line-height:1;}
-  .title span{font-size:1em;line-height:1;white-space:nowrap;letter-spacing:0;}
+  /* 標題：double / exposure 兩行，靠左；寬度由 JS 縮放到畫面約 80% */
+  .title{position:relative;display:inline-block;font-size:min(64px,16vw);line-height:1.05;}
+  .title span{display:block;font-size:1em;line-height:1.05;white-space:nowrap;letter-spacing:0;}
   .t-bottom{color:#00FFEA;}                                   /* 下層 */
   .t-top{position:absolute;top:0;left:0;color:#FF00F2;        /* 上層 */
     mix-blend-mode:screen;transition:letter-spacing 3s ease;}
@@ -41,7 +42,7 @@
   .cam-inner{position:absolute;inset:5px;overflow:hidden;background:#000;}
   #glcanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
   #prevLayer{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-    mix-blend-mode:overlay;opacity:0;transition:opacity 5s linear;}
+    mix-blend-mode:multiply;opacity:0;transition:opacity 5s linear;}
 
   .label{margin-top:32px;font-size:22px;transition:opacity .5s ease;}
 </style>
@@ -52,8 +53,8 @@
   <div id="splash">
     <div class="splash-inner">
       <div class="title">
-        <span class="t-bottom">double exposure</span>
-        <span class="t-top" id="titleTop">double exposure</span>
+        <span class="t-bottom">double<br>exposure</span>
+        <span class="t-top" id="titleTop">double<br>exposure</span>
       </div>
       <div class="sub">with someone else</div>
       <button class="txt start" id="startBtn">((start))</button>
@@ -150,10 +151,11 @@ const COL = 'photos';
 /* ---------- 標題：縮放到畫面寬約 80%（手機不爆版），上限 64px ---------- */
 function fitTitle(){
   const t = document.querySelector('.title');
-  t.style.fontSize = '64px';                       // 先回到基準量測自然寬度
-  const natural = t.querySelector('.t-bottom').scrollWidth;
+  const REF = 20;                                  // 用小字級量測，避免量測瞬間爆版
+  t.style.fontSize = REF + 'px';
+  const natural = t.offsetWidth;                   // 容器寬 = 最寬那行(exposure)
   if(natural > 0){
-    const size = Math.min(64, 64 * (window.innerWidth * 0.8) / natural);
+    const size = Math.min(64, REF * (window.innerWidth * 0.8) / natural);
     t.style.fontSize = size + 'px';
   }
 }
