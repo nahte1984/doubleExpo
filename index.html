@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>doubleExpo | v1.2</title>
+<title>double exposure</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Belgrano&display=swap" rel="stylesheet">
@@ -23,8 +23,8 @@
     display:flex;align-items:center;justify-content:center;transition:opacity .8s ease;}
   .splash-inner{display:flex;flex-direction:column;align-items:flex-start;}
 
-  .title{position:relative;display:inline-block;height:64px;}
-  .title span{font-size:64px;line-height:64px;white-space:nowrap;letter-spacing:0;}
+  .title{position:relative;display:inline-block;font-size:64px;line-height:1;}
+  .title span{font-size:1em;line-height:1;white-space:nowrap;letter-spacing:0;}
   .t-bottom{color:#00FFEA;}                                   /* 下層 */
   .t-top{position:absolute;top:0;left:0;color:#FF00F2;        /* 上層 */
     mix-blend-mode:screen;transition:letter-spacing 3s ease;}
@@ -41,7 +41,7 @@
   .cam-inner{position:absolute;inset:5px;overflow:hidden;background:#000;}
   #glcanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
   #prevLayer{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-    mix-blend-mode:screen;opacity:0;transition:opacity 5s linear;}
+    mix-blend-mode:overlay;opacity:0;transition:opacity 5s linear;}
 
   .label{margin-top:32px;font-size:22px;transition:opacity .5s ease;}
 </style>
@@ -146,6 +146,20 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 const COL = 'photos';
+
+/* ---------- 標題：縮放到畫面寬約 80%（手機不爆版），上限 64px ---------- */
+function fitTitle(){
+  const t = document.querySelector('.title');
+  t.style.fontSize = '64px';                       // 先回到基準量測自然寬度
+  const natural = t.querySelector('.t-bottom').scrollWidth;
+  if(natural > 0){
+    const size = Math.min(64, 64 * (window.innerWidth * 0.8) / natural);
+    t.style.fontSize = size + 'px';
+  }
+}
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitle);
+window.addEventListener('resize', fitTitle);
+fitTitle();
 
 /* ---------- 標題雙重曝光：上層字距 ease 到 5% ---------- */
 requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -335,7 +349,7 @@ async function onShoot(){
       mode = 'again';
       setTimeout(() => { label.disabled = false; }, 500);  // 等文字真的出現後才開放點擊
     }, 1000);
-  }, 2500);
+  }, 5000);
 }
 
 // 回到 shoot 階段（重新開始，給下一位陌生人）
