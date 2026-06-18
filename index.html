@@ -18,8 +18,8 @@
     cursor:pointer;line-height:1;}
 
   /* 畫面上的膠囊按鈕：#313131 底、圓角矩形、14px */
-  .pill{background:#313131;color:#fff;border:none;border-radius:6px;
-    padding:7px 18px;font-size:14px;font-family:'Belgrano',serif;line-height:1;
+  .pill{background:#313131;color:#fff;border:none;border-radius:7px;
+    padding:9px 22px;font-size:16px;font-family:'Belgrano',serif;line-height:1;
     cursor:pointer;white-space:nowrap;transition:opacity .5s ease;}
   .pill:disabled{cursor:default;opacity:1;}
   .pill[hidden]{display:none;}
@@ -312,6 +312,21 @@ function swapText(text){
   void label.offsetHeight;
   label.style.display = '';
 }
+// ((processing)) 動態：三個點依序長出 → 消失 → 循環
+let procTimer = null;
+function startProcessing(){
+  stopProcessing();
+  let i = 0;
+  label.textContent = '((processing))';
+  procTimer = setInterval(() => {
+    i = (i + 1) % 4;                       // 0→1→2→3 個點，再回 0
+    label.textContent = '((processing' + '.'.repeat(i) + '))';
+  }, 400);
+}
+function stopProcessing(){
+  if(procTimer){ clearInterval(procTimer); procTimer = null; }
+}
+
 let fadeTimer = null;
 function setLabel(text, fade){
   clearTimeout(fadeTimer);
@@ -353,6 +368,7 @@ async function onShoot(){
   // 2. process 階段
   label.disabled = true;
   setLabel('((processing))', false);
+  startProcessing();
   frame.style.borderColor = FRAME_PROCESS;
 
   // 3. 向後台要「前一張」，再存入我這張
@@ -372,6 +388,7 @@ async function onShoot(){
 
   // 5. 5s 後進入 done 階段（顯示 save / re-take）
   setTimeout(() => {
+    stopProcessing();
     frame.style.borderColor = FRAME_DONE;
     showResult();
     busy = false;
@@ -433,6 +450,7 @@ async function downloadOrShare(dataUrl){
 
 // 回到第二階段繼續拍
 function retake(){
+  stopProcessing();
   saveBtn.hidden = true; retakeBtn.hidden = true;
   label.hidden = false; label.style.opacity = '1';
   setLabel('((shoot))', false);
