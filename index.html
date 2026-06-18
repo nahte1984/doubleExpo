@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>doubleExpo | v1.4.1</title>
+<title>doubleExpo | v1.5</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Belgrano&display=swap" rel="stylesheet">
@@ -13,10 +13,16 @@
     font-family:'Belgrano',serif;-webkit-tap-highlight-color:transparent;
     -webkit-user-select:none;user-select:none;}
 
-  /* 文字按鈕（用真正的 <button>，iOS Safari 點擊最可靠） */
+  /* 文字按鈕（真正的 <button>，iOS Safari 點擊最可靠） */
   button.txt{background:none;border:none;color:#fff;font-family:'Belgrano',serif;
     cursor:pointer;line-height:1;}
-  button.txt:disabled{cursor:default;opacity:1;}
+
+  /* 畫面上的膠囊按鈕：#313131 底、圓角矩形、14px */
+  .pill{background:#313131;color:#fff;border:none;border-radius:6px;
+    padding:7px 18px;font-size:14px;font-family:'Belgrano',serif;line-height:1;
+    cursor:pointer;white-space:nowrap;transition:opacity .5s ease;}
+  .pill:disabled{cursor:default;opacity:1;}
+  .pill[hidden]{display:none;}
 
   /* ---------- 第一階段：splash ---------- */
   #splash{position:fixed;inset:0;background:#313131;z-index:30;overflow:hidden;padding:5vw;
@@ -35,16 +41,19 @@
 
   /* ---------- 第二~四階段：相機 ---------- */
   #cam{position:fixed;inset:0;background:#313131;z-index:10;
-    display:none;flex-direction:column;align-items:center;justify-content:center;}
+    display:none;align-items:center;justify-content:center;}
 
-  .frame{width:240px;height:320px;border:1px solid #31FFEE;position:relative;
+  /* 框線：寬高由 JS 撐到畫面留 10px padding；內距 5px + 1px 框線 = 照片向內縮 6px */
+  .frame{border:1px solid #31FFEE;padding:5px;position:relative;line-height:0;
     transition:border-color 1s ease;}
-  .cam-inner{position:absolute;inset:5px;overflow:hidden;background:#000;}
+  .cam-inner{position:relative;overflow:hidden;background:#000;}  /* 寬高(3:4)由 JS 設定 */
   #glcanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
   #prevLayer{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
     mix-blend-mode:multiply;opacity:0;transition:opacity 5s linear;}
 
-  .label{margin-top:32px;font-size:22px;transition:opacity .5s ease;}
+  /* 按鈕列：置中，浮在照片下邊界上方 10px */
+  .btnbar{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
+    display:flex;gap:10px;z-index:5;}
 </style>
 </head>
 <body>
@@ -64,12 +73,16 @@
   <!-- 第二~四階段 -->
   <div id="cam">
     <div class="frame" id="frame">
-      <div class="cam-inner">
+      <div class="cam-inner" id="camInner">
         <canvas id="glcanvas"></canvas>
         <img id="prevLayer" alt="">
+        <div class="btnbar">
+          <button class="pill" id="label">((shoot))</button>
+          <button class="pill" id="saveBtn" hidden>((save))</button>
+          <button class="pill" id="retakeBtn" hidden>((re-take))</button>
+        </div>
       </div>
     </div>
-    <button class="txt label" id="label">((shoot))</button>
   </div>
 
 <!-- ===================== 著色器 ===================== -->
@@ -160,7 +173,6 @@ function fitTitle(){
   }
 }
 if(document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitle);
-window.addEventListener('resize', fitTitle);
 fitTitle();
 
 /* ---------- 標題雙重曝光：上層字距 ease 到 5% ---------- */
@@ -233,6 +245,20 @@ async function loadLUT(){
 }
 loadLUT();
 
+/* ---------- 尺寸：框線撐到畫面留 10px，照片維持 3:4 ---------- */
+const camInner = document.getElementById('camInner');
+function sizeStage(){
+  const VPAD = 10;          // 畫面四邊留白
+  const CHROME = 5 + 1;     // 每邊：內距 5px + 框線 1px
+  const availW = window.innerWidth  - VPAD*2 - CHROME*2;
+  const availH = window.innerHeight - VPAD*2 - CHROME*2;
+  let w, h;
+  if(availW / availH > 3/4){ h = availH; w = h * 3/4; }   // 高度受限
+  else { w = availW; h = w * 4/3; }                       // 寬度受限
+  camInner.style.width  = Math.floor(w) + 'px';
+  camInner.style.height = Math.floor(h) + 'px';
+}
+
 function sizeCanvas(){
   const r = glcanvas.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -254,42 +280,46 @@ function render(t){
   gl.drawArrays(gl.TRIANGLES,0,6);
 }
 
-/* ---------- 階段控制 ---------- */
-const splash   = document.getElementById('splash');
-const camView  = document.getElementById('cam');
-const frame    = document.getElementById('frame');
-const label    = document.getElementById('label');
-const prevLayer= document.getElementById('prevLayer');
+window.addEventListener('resize', () => {
+  fitTitle();
+  if(camView.style.display === 'flex'){ sizeStage(); sizeCanvas(); }
+});
 
+/* ---------- 階段控制 ---------- */
+const splash    = document.getElementById('splash');
+const camView   = document.getElementById('cam');
+const frame     = document.getElementById('frame');
+const label     = document.getElementById('label');
+const saveBtn   = document.getElementById('saveBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+const prevLayer = document.getElementById('prevLayer');
+
+const FRAME_SHOOT   = '#31FFEE';
 const FRAME_PROCESS = '#FF31F4';
 const FRAME_DONE    = '#FFFFFF';
 
-let mode = 'shoot';   // 'shoot' = 按下拍照, 'again' = 重新開始
+let myShot = null, prevShot = null, busy = false;
 
 document.getElementById('startBtn').addEventListener('click', startExperience);
-label.addEventListener('click', () => {
-  if(label.disabled) return;
-  if(mode === 'shoot') onShoot();
-  else if(mode === 'again') restart();
-});
+label.addEventListener('click', () => { if(!label.disabled && !busy) onShoot(); });
+saveBtn.addEventListener('click', saveComposite);
+retakeBtn.addEventListener('click', retake);
 
-// 換字時強制重繪整個按鈕，清除 GPU 合成層可能殘留的舊文字殘影
+// 換字時強制重繪，避免 GPU 合成層殘留舊文字
 function swapText(text){
   label.textContent = text;
   label.style.display = 'none';
-  void label.offsetHeight;                 // 強制 reflow
+  void label.offsetHeight;
   label.style.display = '';
 }
-
 let fadeTimer = null;
 function setLabel(text, fade){
-  clearTimeout(fadeTimer);                 // 取消還沒執行的舊換字，避免互相覆蓋
+  clearTimeout(fadeTimer);
   if(fade){
     label.style.opacity = '0';
     fadeTimer = setTimeout(() => { swapText(text); label.style.opacity = '1'; }, 500);
   } else {
-    swapText(text);
-    label.style.opacity = '1';
+    swapText(text); label.style.opacity = '1';
   }
 }
 
@@ -303,74 +333,121 @@ async function startExperience(){
     await video.play();
   }catch(e){ alert('無法啟動相機：' + e.message); return; }
 
-  // splash ease out
   splash.style.opacity = '0';
   setTimeout(() => splash.style.display = 'none', 800);
 
-  // 進入 shoot
   camView.style.display = 'flex';
+  sizeStage();
   sizeCanvas();
-  window.addEventListener('resize', sizeCanvas);
   rendering = true;
   requestAnimationFrame(render);
 }
 
 async function onShoot(){
-  // 1. 凝結畫面 + 擷取我的這一張（已套 LUT）
-  const myShot = glcanvas.toDataURL('image/jpeg', 0.85);
-  rendering = false;                       // 停止更新 → 畫面凍結
+  busy = true;
 
-  // 2. 進入 process 階段
+  // 1. 凝結畫面 + 擷取我的這一張（已套 LUT）
+  myShot = glcanvas.toDataURL('image/jpeg', 0.85);
+  rendering = false;
+
+  // 2. process 階段
   label.disabled = true;
   setLabel('((processing))', false);
   frame.style.borderColor = FRAME_PROCESS;
 
   // 3. 向後台要「前一張」，再存入我這張
-  let prevShot = null;
+  prevShot = null;
   try{
     const snap = await getDocs(query(collection(db, COL), orderBy('time','desc'), limit(1)));
     snap.forEach(d => { prevShot = d.data().image; });
     await addDoc(collection(db, COL), { image: myShot, time: serverTimestamp() });
   }catch(e){ console.error('Firestore 錯誤:', e); }
 
-  // 4. 前一張以 screen 疊色淡入（0 → 100，歷時 5s）
+  // 4. 前一張以 multiply 疊在上方，透明度 0 → 100，歷時 5s
   if(prevShot){
     prevLayer.src = prevShot;
-    void prevLayer.offsetWidth;            // 強制 reflow，確保 transition 觸發
+    void prevLayer.offsetWidth;
     prevLayer.style.opacity = '1';
   }
 
-  // 5. 5s 後進入 done 階段
+  // 5. 5s 後進入 done 階段（顯示 save / re-take）
   setTimeout(() => {
-    setLabel('((done))', false);
     frame.style.borderColor = FRAME_DONE;
-
-    // done 一秒後，文字漸變成 ((shoot again))，可點擊回到 shoot
-    setTimeout(() => {
-      setLabel('((shoot again))', true);
-      mode = 'again';
-      setTimeout(() => { label.disabled = false; }, 500);  // 等文字真的出現後才開放點擊
-    }, 1000);
+    showResult();
+    busy = false;
   }, 5000);
 }
 
-// 回到 shoot 階段（重新開始，給下一位陌生人）
-function restart(){
-  mode = 'shoot';
-  label.disabled = true;                       // 換文字期間先鎖住
-  setLabel('((shoot))', true);
-  setTimeout(() => { label.disabled = false; }, 500);
+// 顯示結果按鈕：((save)) ((re-take))
+function showResult(){
+  label.style.opacity = '0';
+  setTimeout(() => {
+    label.hidden = true;
+    saveBtn.hidden = false; retakeBtn.hidden = false;
+    saveBtn.style.opacity = '0'; retakeBtn.style.opacity = '0';
+    void saveBtn.offsetWidth;
+    saveBtn.style.opacity = '1'; retakeBtn.style.opacity = '1';
+  }, 500);
+}
 
-  frame.style.borderColor = '#31FFEE';
+// 載入圖片成 Image
+function loadImg(src){
+  return new Promise((res, rej) => {
+    const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src;
+  });
+}
 
-  // 立即清掉上一張疊曝（不要等 2.5s 淡出）
+// 把「我這張 × 上一張(multiply)」合成後存到使用者裝置
+async function saveComposite(){
+  if(!myShot) return;
+  try{
+    const my = await loadImg(myShot);
+    const w = my.naturalWidth, h = my.naturalHeight;
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d');
+    cx.drawImage(my, 0, 0, w, h);
+    if(prevShot){
+      const pv = await loadImg(prevShot);
+      cx.globalCompositeOperation = 'multiply';
+      cx.drawImage(pv, 0, 0, w, h);
+      cx.globalCompositeOperation = 'source-over';
+    }
+    await downloadOrShare(cv.toDataURL('image/jpeg', 0.92));
+  }catch(e){ console.error('存檔失敗:', e); alert('存檔失敗：' + e.message); }
+}
+
+// 手機優先用分享面板（可選「儲存影像」），桌機退回直接下載
+async function downloadOrShare(dataUrl){
+  try{
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], 'double-exposure.jpg', { type:'image/jpeg' });
+    if(navigator.canShare && navigator.canShare({ files:[file] })){
+      await navigator.share({ files:[file], title:'double exposure' });
+      return;
+    }
+  }catch(e){ console.warn('分享失敗，改用下載:', e); }
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = 'double-exposure.jpg';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// 回到第二階段繼續拍
+function retake(){
+  saveBtn.hidden = true; retakeBtn.hidden = true;
+  label.hidden = false; label.style.opacity = '1';
+  setLabel('((shoot))', false);
+  label.disabled = false;
+  frame.style.borderColor = FRAME_SHOOT;
+
+  // 清掉上一張疊曝（不要等 5s 淡出）
   prevLayer.style.transition = 'none';
   prevLayer.style.opacity = '0';
   void prevLayer.offsetWidth;
   prevLayer.removeAttribute('src');
   prevLayer.style.transition = 'opacity 5s linear';
 
-  rendering = true;                            // 恢復即時鏡頭
+  myShot = null; prevShot = null;
+  rendering = true;
   requestAnimationFrame(render);
 }
 </script>
