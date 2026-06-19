@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>doubleExpo | v1.5.2</title>
+<title>doubleExpo | v1.6</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Belgrano&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
   button.txt{background:none;border:none;color:#fff;font-family:'Belgrano',serif;
     cursor:pointer;line-height:1;}
 
-  /* 畫面上的膠囊按鈕：#313131 底、圓角矩形、14px */
+  /* 畫面上的膠囊按鈕：#313131 底、圓角矩形、16px */
   .pill{background:#313131;color:#fff;border:none;border-radius:7px;
     padding:8px 22px 10px;font-size:16px;font-family:'Belgrano',serif;line-height:1;
     cursor:pointer;white-space:nowrap;transition:opacity .5s ease;}
@@ -27,7 +27,14 @@
   /* ---------- 第一階段：splash ---------- */
   #splash{position:fixed;inset:0;background:#313131;z-index:30;overflow:hidden;padding:5vw;
     display:flex;align-items:center;justify-content:center;transition:opacity .8s ease;}
-  .splash-inner{display:flex;flex-direction:column;align-items:flex-start;max-width:100%;}
+
+  /* splash 背景：隨機輪播 _img 內的圖（200x400、置中、35% 透明） */
+  #slideshow{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    z-index:0;pointer-events:none;}
+  #slideImg{width:200px;height:400px;object-fit:cover;opacity:.35;}
+
+  .splash-inner{position:relative;z-index:1;
+    display:flex;flex-direction:column;align-items:flex-start;max-width:100%;}
 
   /* 標題：double / exposure 兩行，靠左；寬度由 JS 縮放到畫面約 80% */
   .title{position:relative;display:inline-block;font-size:min(64px,16vw);line-height:1.05;}
@@ -60,6 +67,7 @@
 
   <!-- 第一階段 -->
   <div id="splash">
+    <div id="slideshow"><img id="slideImg" alt=""></div>
     <div class="splash-inner">
       <div class="title">
         <span class="t-bottom">double<br>exposure</span>
@@ -179,6 +187,49 @@ fitTitle();
 requestAnimationFrame(() => requestAnimationFrame(() => {
   document.getElementById('titleTop').style.letterSpacing = '0.05em';
 }));
+
+/* ---------- splash 背景：隨機輪播 _img 內的圖 ----------
+   檔名規則：_img/001.png、002.png …（連號）。新增圖會自動被偵測到。
+   一秒四張、整輪不重複，跑完一輪用新的亂序繼續，直到按下 ((start))。 */
+const IMG_DIR = '_img/', IMG_EXT = '.png', IMG_PAD = 3;
+const slideImg = document.getElementById('slideImg');
+let slideList = [], slideOrder = [], slideIdx = 0, slideTimer = null;
+
+function imgExists(src){
+  return new Promise(res => { const im = new Image(); im.onload=()=>res(true); im.onerror=()=>res(false); im.src=src; });
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+async function discoverImages(){
+  const found = []; let miss = 0, i = 1;
+  while(miss < 3 && i <= 999){                     // 連續 3 個找不到就停
+    const name = IMG_DIR + String(i).padStart(IMG_PAD,'0') + IMG_EXT;
+    if(await imgExists(name)){ found.push(name); miss = 0; } else miss++;
+    i++;
+  }
+  return found;
+}
+
+function nextSlide(){
+  if(slideIdx >= slideOrder.length){               // 一輪播完 → 重新亂序
+    const last = slideOrder[slideOrder.length-1];
+    slideOrder = shuffle(slideList.slice());
+    if(slideOrder.length>1 && slideOrder[0]===last){ [slideOrder[0],slideOrder[1]]=[slideOrder[1],slideOrder[0]]; }
+    slideIdx = 0;
+  }
+  slideImg.src = slideOrder[slideIdx++];
+}
+
+async function startSlideshow(){
+  slideList = await discoverImages();              // 偵測時已順便載入並快取
+  if(!slideList.length) return;
+  slideOrder = shuffle(slideList.slice());
+  slideIdx = 0;
+  nextSlide();
+  slideTimer = setInterval(nextSlide, 250);        // 一秒四張
+}
+function stopSlideshow(){ if(slideTimer){ clearInterval(slideTimer); slideTimer = null; } }
+startSlideshow();
 
 /* ---------- WebGL + milky LUT ---------- */
 const glcanvas = document.getElementById('glcanvas');
@@ -348,6 +399,7 @@ async function startExperience(){
     await video.play();
   }catch(e){ alert('無法啟動相機：' + e.message); return; }
 
+  stopSlideshow();                          // 停止 splash 輪播
   splash.style.opacity = '0';
   setTimeout(() => splash.style.display = 'none', 800);
 
