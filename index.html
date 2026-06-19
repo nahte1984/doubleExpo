@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>doubleExpo | v1.6.3</title>
+<title>doubleExpo | v1.6</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Belgrano&display=swap" rel="stylesheet">
@@ -63,7 +63,8 @@
     display:flex;gap:10px;z-index:5;}
   /* 翻轉鏡頭鈕：釘在右下角，與 ((shoot)) 同一排高度 */
   .flipbtn{position:absolute;right:10px;bottom:10px;z-index:5;}
-  .flip-icon{font-size:1.5em;line-height:1;vertical-align:-0.12em;display:inline-block;}
+  /* 放大符號但不撐高按鈕：line-height:0 讓它不影響行高，溢出由 vertical-align 置中 */
+  .flip-icon{font-size:1.5em;line-height:0;vertical-align:middle;}
 </style>
 </head>
 <body>
