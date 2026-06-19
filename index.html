@@ -31,7 +31,7 @@
   /* splash 背景：隨機輪播 _img 內的圖（200x400、置中、35% 透明） */
   #slideshow{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     z-index:0;pointer-events:none;}
-  #slideImg{width:200px;height:400px;object-fit:cover;opacity:.35;}
+  #slideImg{width:200px;height:400px;object-fit:cover;opacity:0;transition:opacity .6s ease;}
 
   .splash-inner{position:relative;z-index:1;
     display:flex;flex-direction:column;align-items:flex-start;max-width:100%;}
@@ -200,14 +200,15 @@ function imgExists(src){
 }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
+// 並行探測連號檔（同時預載快取），比逐張 await 快很多
 async function discoverImages(){
-  const found = []; let miss = 0, i = 1;
-  while(miss < 3 && i <= 999){                     // 連續 3 個找不到就停
-    const name = IMG_DIR + String(i).padStart(IMG_PAD,'0') + IMG_EXT;
-    if(await imgExists(name)){ found.push(name); miss = 0; } else miss++;
-    i++;
+  const MAX = 60;                                  // 探到 060.png；要更多就調大
+  const checks = [];
+  for(let i=1;i<=MAX;i++){
+    const src = IMG_DIR + String(i).padStart(IMG_PAD,'0') + IMG_EXT;
+    checks.push(imgExists(src).then(ok => ok ? src : null));
   }
-  return found;
+  return (await Promise.all(checks)).filter(Boolean);
 }
 
 function nextSlide(){
@@ -221,12 +222,23 @@ function nextSlide(){
 }
 
 async function startSlideshow(){
-  slideList = await discoverImages();              // 偵測時已順便載入並快取
+  // 第一張一就緒就先淡入（不等其他圖載完），消除空框尷尬
+  const firstSrc = IMG_DIR + String(1).padStart(IMG_PAD,'0') + IMG_EXT;
+  imgExists(firstSrc).then(ok => {
+    if(ok && !slideImg.getAttribute('src')){
+      slideImg.src = firstSrc;
+      slideImg.style.opacity = '0.35';
+    }
+  });
+
+  // 背景並行探測 + 預載全部，再開始平順輪播（已快取，切換才不會閃）
+  slideList = await discoverImages();
   if(!slideList.length) return;
   slideOrder = shuffle(slideList.slice());
   slideIdx = 0;
-  nextSlide();
-  slideTimer = setInterval(nextSlide, 250);        // 一秒四張
+  slideImg.style.opacity = '0.35';
+  if(!slideImg.getAttribute('src')) nextSlide();   // 第一張還沒顯示就立刻補上
+  slideTimer = setInterval(nextSlide, 250);         // 一秒四張
 }
 function stopSlideshow(){ if(slideTimer){ clearInterval(slideTimer); slideTimer = null; } }
 startSlideshow();
