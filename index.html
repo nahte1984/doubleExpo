@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>doubleExpo | v1.6.1</title>
+<title>doubleExpo | v1.6</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Belgrano&display=swap" rel="stylesheet">
@@ -61,6 +61,8 @@
   /* 按鈕列：置中，浮在照片下邊界上方 10px */
   .btnbar{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
     display:flex;gap:10px;z-index:5;}
+  /* 翻轉鏡頭鈕：釘在右下角，與 ((shoot)) 同一排高度 */
+  .flipbtn{position:absolute;right:10px;bottom:10px;z-index:5;}
 </style>
 </head>
 <body>
@@ -89,6 +91,7 @@
           <button class="pill" id="saveBtn" hidden>((save))</button>
           <button class="pill" id="retakeBtn" hidden>((re-take))</button>
         </div>
+        <button class="pill flipbtn" id="flipBtn">((↻))</button>
       </div>
     </div>
   </div>
@@ -108,6 +111,7 @@ uniform float u_lutSize;
 uniform vec2  u_res;
 uniform vec2  u_texRes;
 uniform float u_time;
+uniform float u_mirror;
 varying vec2 v_uv;
 
 const float GRAIN    = 0.04;
@@ -141,6 +145,7 @@ vec3 applyLUT(vec3 col){
 void main(){
   vec2 uv = coverUV(v_uv);
   uv.y = 1.0 - uv.y;                 // 修正上下顛倒
+  if(u_mirror > 0.5) uv.x = 1.0 - uv.x;   // 前鏡頭水平鏡像
   vec3 src = texture2D(u_tex, uv).rgb;
   vec3 c = applyLUT(src);
   c += (hash(v_uv*u_res + u_time*60.0)-0.5)*GRAIN;
@@ -250,6 +255,7 @@ const video = document.createElement('video');
 video.playsInline = true; video.muted = true; video.setAttribute('playsinline','');
 
 let lutReady = false, rendering = false;
+let facing = 'environment', mirror = false, currentStream = null;
 
 function compile(type, src){
   const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -277,7 +283,8 @@ const lutTex = gl.createTexture();
 const U = {
   tex:gl.getUniformLocation(prog,'u_tex'), lut:gl.getUniformLocation(prog,'u_lut'),
   lutSize:gl.getUniformLocation(prog,'u_lutSize'), res:gl.getUniformLocation(prog,'u_res'),
-  texRes:gl.getUniformLocation(prog,'u_texRes'), time:gl.getUniformLocation(prog,'u_time')
+  texRes:gl.getUniformLocation(prog,'u_texRes'), time:gl.getUniformLocation(prog,'u_time'),
+  mirror:gl.getUniformLocation(prog,'u_mirror')
 };
 
 async function loadLUT(){
@@ -340,6 +347,7 @@ function render(t){
   gl.uniform2f(U.res, glcanvas.width, glcanvas.height);
   gl.uniform2f(U.texRes, video.videoWidth, video.videoHeight);
   gl.uniform1f(U.time, t*0.001);
+  gl.uniform1f(U.mirror, mirror ? 1.0 : 0.0);
   gl.drawArrays(gl.TRIANGLES,0,6);
 }
 
@@ -355,6 +363,7 @@ const frame     = document.getElementById('frame');
 const label     = document.getElementById('label');
 const saveBtn   = document.getElementById('saveBtn');
 const retakeBtn = document.getElementById('retakeBtn');
+const flipBtn   = document.getElementById('flipBtn');
 const prevLayer = document.getElementById('prevLayer');
 
 const FRAME_SHOOT   = '#31FFEE';
@@ -367,6 +376,7 @@ document.getElementById('startBtn').addEventListener('click', startExperience);
 label.addEventListener('click', () => { if(!label.disabled && !busy) onShoot(); });
 saveBtn.addEventListener('click', saveComposite);
 retakeBtn.addEventListener('click', retake);
+flipBtn.addEventListener('click', flipCamera);
 
 // 換字時強制重繪，避免 GPU 合成層殘留舊文字
 function swapText(text){
@@ -401,15 +411,30 @@ function setLabel(text, fade){
   }
 }
 
+// 用目前的 facing 啟動／重啟相機
+async function startCamera(){
+  if(currentStream){ currentStream.getTracks().forEach(t => t.stop()); }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode:{ ideal:facing }, width:{ideal:1920}, height:{ideal:1080} },
+    audio:false
+  });
+  currentStream = stream;
+  video.srcObject = stream;
+  await video.play();
+}
+
+// 切換前／後鏡頭（前鏡頭水平鏡像，selfie 才不會反）
+async function flipCamera(){
+  if(busy) return;
+  facing = (facing === 'environment') ? 'user' : 'environment';
+  mirror = (facing === 'user');
+  try{ await startCamera(); }
+  catch(e){ alert('切換鏡頭失敗：' + e.message); }
+}
+
 async function startExperience(){
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode:{ ideal:'environment' }, width:{ideal:1920}, height:{ideal:1080} },
-      audio:false
-    });
-    video.srcObject = stream;
-    await video.play();
-  }catch(e){ alert('無法啟動相機：' + e.message); return; }
+  try{ await startCamera(); }
+  catch(e){ alert('無法啟動相機：' + e.message); return; }
 
   stopSlideshow();                          // 停止 splash 輪播
   splash.style.opacity = '0';
@@ -431,6 +456,7 @@ async function onShoot(){
 
   // 2. process 階段
   label.disabled = true;
+  flipBtn.hidden = true;                    // 拍攝後不再顯示翻轉鈕
   setLabel('((processing))', false);
   startProcessing();
   frame.style.borderColor = FRAME_PROCESS;
@@ -517,6 +543,7 @@ function retake(){
   stopProcessing();
   saveBtn.hidden = true; retakeBtn.hidden = true;
   label.hidden = false; label.style.opacity = '1';
+  flipBtn.hidden = false;                   // 回到 shoot 重新顯示翻轉鈕
   setLabel('((shoot))', false);
   label.disabled = false;
   frame.style.borderColor = FRAME_SHOOT;
